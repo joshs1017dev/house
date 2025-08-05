@@ -24,6 +24,8 @@
     "@sveltejs/vite-plugin-svelte": "^6.1.0",
     "@tsconfig/svelte": "^5.0.4",
     "@types/sortablejs": "^1.15.8",
+    "sharp": "^0.34.3",
+    "sharp-cli": "^5.2.0",
     "svelte": "^5.37.3",
     "svelte-check": "^4.3.1",
     "tslib": "^2.8.1",
