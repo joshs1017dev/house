@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple House App</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏠 House - Home Improvement Manager</h1>
+        <p>Simple version to test if deployment works</p>
+        <button onclick="alert('Button works!')">Test Button</button>
+        <div id="status"></div>
+    </div>
+    <script>
+        document.getElementById('status').innerHTML = '<p style="color: green;">✓ JavaScript is working!</p>';
+        console.log('Simple page loaded successfully');
+    </script>
+</body>
+</html>
