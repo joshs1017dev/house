@@ -12,11 +12,17 @@
   let showNewProjectModal = false;
 
   onMount(async () => {
-    await projects.load();
+    try {
+      await projects.load();
+    } catch (error) {
+      console.error('Error loading projects:', error);
+    }
     
     // Register service worker for PWA
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js');
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.error('SW registration failed:', err);
+      });
     }
   });
 
