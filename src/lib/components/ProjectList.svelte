@@ -39,7 +39,9 @@
   
   async function deleteProject(project: Project) {
     if (confirm(`Are you sure you want to delete "${project.name}"? This will also delete all associated tasks, expenses, and photos.`)) {
-      await projects.delete(project.id!);
+      if (project.id) {
+        await projects.delete(project.id);
+      }
     }
   }
   
@@ -161,7 +163,7 @@
               {/if}
               
               <div class="project-actions">
-                <button on:click={() => selectProject(project.id!)}>
+                <button on:click={() => selectProject(project.id || 0)}>
                   View Details
                 </button>
                 <button 
