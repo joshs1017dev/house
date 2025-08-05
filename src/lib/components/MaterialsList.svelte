@@ -381,7 +381,7 @@
                     {#if material.status === 'needed'}
                       <button 
                         class="icon-btn"
-                        on:click={() => updateStatus(material.id!, 'ordered')}
+                        on:click={() => updateStatus(material.id || 0, 'ordered')}
                         title="Mark as Ordered"
                       >
                         🛒
@@ -390,7 +390,7 @@
                     {#if material.status === 'ordered'}
                       <button 
                         class="icon-btn"
-                        on:click={() => updateStatus(material.id!, 'received')}
+                        on:click={() => updateStatus(material.id || 0, 'received')}
                         title="Mark as Received"
                       >
                         ✅
@@ -405,7 +405,7 @@
                     </button>
                     <button 
                       class="icon-btn danger"
-                      on:click={() => deleteMaterial(material.id!)}
+                      on:click={() => deleteMaterial(material.id || 0)}
                       title="Delete"
                     >
                       🗑️

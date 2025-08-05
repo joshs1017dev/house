@@ -1,332 +1,383 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
-  import { db } from '../db/database';
-  import type { Photo, Task } from '../db/database';
-  import { format } from 'date-fns';
+  import { onMount } from 'svelte';
+  import { photos } from '../stores';
+  import type { Photo } from '../db/database';
   
   export let projectId: number;
   
-  const dispatch = createEventDispatcher();
-  
-  let photos: Photo[] = [];
-  let tasks: Task[] = [];
-  let showUploadForm = false;
+  let projectPhotos: Photo[] = [];
+  let showCamera = false;
+  let videoElement: HTMLVideoElement;
+  let canvasElement: HTMLCanvasElement;
+  let stream: MediaStream | null = null;
   let selectedPhoto: Photo | null = null;
   let filterType: 'all' | 'before' | 'after' = 'all';
-  let filterTaskId: number | undefined;
   let uploadInput: HTMLInputElement;
-  let cameraInput: HTMLInputElement;
   
   let newPhoto = {
     caption: '',
-    isBefore: true,
-    taskId: undefined as number | undefined,
+    isBefore: false,
+    isAfter: false,
     tags: ''
   };
   
-  $: filteredPhotos = photos.filter(p => {
-    if (filterType !== 'all' && p.isBefore !== (filterType === 'before')) return false;
-    if (filterTaskId && p.taskId !== filterTaskId) return false;
-    return true;
-  });
-  
-  onMount(async () => {
-    await loadPhotos();
-    await loadTasks();
-  });
-  
-  async function loadPhotos() {
-    photos = await db.photos
-      .where('projectId')
-      .equals(projectId)
-      .reverse()
-      .toArray();
-  }
-  
-  async function loadTasks() {
-    tasks = await db.tasks.where('projectId').equals(projectId).toArray();
-  }
-  
-  async function handleFileUpload(event: Event) {
-    const input = event.target as HTMLInputElement;
-    const files = input.files;
-    if (!files || files.length === 0) return;
+  photos.subscribe(p => {
+    let filtered = p.filter(photo => photo.projectId === projectId);
     
-    for (const file of files) {
-      await uploadPhoto(file);
+    if (filterType === 'before') {
+      filtered = filtered.filter(photo => photo.isBefore);
+    } else if (filterType === 'after') {
+      filtered = filtered.filter(photo => photo.isAfter);
+    }
+    
+    projectPhotos = filtered.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  });
+  
+  onMount(() => {
+    return () => {
+      stopCamera();
+    };
+  });
+  
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        } 
+      });
+      if (videoElement) {
+        videoElement.srcObject = stream;
+      }
+      showCamera = true;
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      alert('Unable to access camera. Please check permissions.');
     }
   }
   
-  async function uploadPhoto(file: File) {
-    const reader = new FileReader();
-    
-    reader.onload = async (e) => {
-      const url = e.target?.result as string;
-      const thumbnail = await createThumbnail(url);
-      
-      await db.photos.add({
-        projectId,
-        url,
-        thumbnail,
-        caption: newPhoto.caption.trim(),
-        isBefore: newPhoto.isBefore,
-        taskId: newPhoto.taskId,
-        timestamp: new Date(),
-        tags: newPhoto.tags.split(',').map(t => t.trim()).filter(t => t)
-      });
-      
-      await loadPhotos();
-      dispatch('update');
-    };
-    
-    reader.readAsDataURL(file);
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+    showCamera = false;
   }
   
-  async function createThumbnail(url: string): Promise<string> {
+  async function capturePhoto() {
+    if (!videoElement || !canvasElement) return;
+    
+    const context = canvasElement.getContext('2d');
+    if (!context) return;
+    
+    // Set canvas size to match video
+    canvasElement.width = videoElement.videoWidth;
+    canvasElement.height = videoElement.videoHeight;
+    
+    // Draw video frame to canvas
+    context.drawImage(videoElement, 0, 0);
+    
+    // Convert to blob
+    canvasElement.toBlob(async (blob) => {
+      if (!blob) return;
+      
+      // Convert blob to base64
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        await savePhoto(base64);
+      };
+      reader.readAsDataURL(blob);
+    }, 'image/jpeg', 0.8);
+  }
+  
+  async function handleFileUpload(event: Event) {
+    const files = (event.target as HTMLInputElement).files;
+    if (!files || files.length === 0) return;
+    
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64 = reader.result as string;
+          await savePhoto(base64);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+    
+    // Reset input
+    if (uploadInput) uploadInput.value = '';
+  }
+  
+  async function savePhoto(base64Data: string) {
+    // Create thumbnail
+    const thumbnail = await createThumbnail(base64Data);
+    
+    await photos.add({
+      projectId,
+      url: base64Data,
+      thumbnail,
+      caption: newPhoto.caption.trim() || undefined,
+      isBefore: newPhoto.isBefore,
+      isAfter: newPhoto.isAfter,
+      tags: newPhoto.tags.split(',').map(tag => tag.trim()).filter(Boolean),
+      timestamp: new Date()
+    });
+    
+    // Reset form
+    newPhoto = {
+      caption: '',
+      isBefore: false,
+      isAfter: false,
+      tags: ''
+    };
+    
+    stopCamera();
+    await photos.load(projectId);
+  }
+  
+  async function createThumbnail(base64Data: string): Promise<string> {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d')!;
-        
-        const maxSize = 200;
-        let width = img.width;
-        let height = img.height;
-        
-        if (width > height) {
-          if (width > maxSize) {
-            height = (height * maxSize) / width;
-            width = maxSize;
-          }
-        } else {
-          if (height > maxSize) {
-            width = (width * maxSize) / height;
-            height = maxSize;
-          }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(base64Data);
+          return;
         }
         
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
+        // Create thumbnail at 200px width
+        const maxWidth = 200;
+        const scale = maxWidth / img.width;
+        canvas.width = maxWidth;
+        canvas.height = img.height * scale;
         
-        resolve(canvas.toDataURL('image/jpeg', 0.8));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
       };
-      img.src = url;
+      img.src = base64Data;
     });
   }
   
-  async function deletePhoto(photo: Photo) {
+  async function deletePhoto(photoId: number) {
     if (confirm('Are you sure you want to delete this photo?')) {
-      await db.photos.delete(photo.id!);
-      await loadPhotos();
-      dispatch('update');
+      await photos.delete(photoId);
+      await photos.load(projectId);
     }
   }
   
-  function openCamera() {
-    cameraInput.click();
+  function downloadPhoto(photo: Photo) {
+    const link = document.createElement('a');
+    link.href = photo.url;
+    link.download = `project-photo-${photo.id}.jpg`;
+    link.click();
   }
   
-  function selectPhoto(photo: Photo) {
-    selectedPhoto = photo;
-  }
-  
-  function closePhotoViewer() {
-    selectedPhoto = null;
-  }
-  
-  function getTaskName(taskId: number) {
-    const task = tasks.find(t => t.id === taskId);
-    return task?.title || 'Unknown task';
+  function formatDate(date: Date): string {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric'
+    }).format(date);
   }
 </script>
 
 <div class="photo-gallery">
   <div class="gallery-header">
-    <h3>Photo Gallery</h3>
+    <h3>📸 Photo Documentation</h3>
     <div class="header-actions">
-      <button on:click={() => showUploadForm = !showUploadForm}>
-        {showUploadForm ? '✕ Cancel' : '📸 Add Photos'}
+      <button class="btn-secondary" on:click={() => uploadInput.click()}>
+        📁 Upload
+      </button>
+      <button class="btn-primary" on:click={startCamera}>
+        📷 Take Photo
       </button>
     </div>
   </div>
   
-  {#if showUploadForm}
-    <div class="upload-form card">
-      <h4>Add Photos</h4>
-      <div class="form-row">
+  <input
+    bind:this={uploadInput}
+    type="file"
+    accept="image/*"
+    multiple
+    on:change={handleFileUpload}
+    style="display: none"
+  />
+  
+  <div class="filter-tabs">
+    <button
+      class="filter-tab"
+      class:active={filterType === 'all'}
+      on:click={() => filterType = 'all'}
+    >
+      All Photos ({projectPhotos.length})
+    </button>
+    <button
+      class="filter-tab"
+      class:active={filterType === 'before'}
+      on:click={() => filterType = 'before'}
+    >
+      Before ({projectPhotos.filter(p => p.isBefore).length})
+    </button>
+    <button
+      class="filter-tab"
+      class:active={filterType === 'after'}
+      on:click={() => filterType = 'after'}
+    >
+      After ({projectPhotos.filter(p => p.isAfter).length})
+    </button>
+  </div>
+  
+  {#if showCamera}
+    <div class="camera-container card">
+      <h4>Take Photo</h4>
+      
+      <div class="camera-preview">
+        <video bind:this={videoElement} autoplay playsinline></video>
+        <canvas bind:this={canvasElement} style="display: none"></canvas>
+      </div>
+      
+      <div class="photo-form">
         <div class="form-group">
-          <label>Type</label>
-          <div class="radio-group">
-            <label>
-              <input
-                type="radio"
-                bind:group={newPhoto.isBefore}
-                value={true}
-              />
-              Before
-            </label>
-            <label>
-              <input
-                type="radio"
-                bind:group={newPhoto.isBefore}
-                value={false}
-              />
-              After
-            </label>
-          </div>
+          <input
+            type="text"
+            bind:value={newPhoto.caption}
+            placeholder="Photo caption (optional)"
+          />
         </div>
         
-        {#if tasks.length > 0}
-          <div class="form-group">
-            <label for="task">Related Task (optional)</label>
-            <select id="task" bind:value={newPhoto.taskId}>
-              <option value={undefined}>No specific task</option>
-              {#each tasks as task}
-                <option value={task.id}>{task.title}</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
+        <div class="form-row">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              bind:checked={newPhoto.isBefore}
+            />
+            Before photo
+          </label>
+          
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              bind:checked={newPhoto.isAfter}
+            />
+            After photo
+          </label>
+        </div>
+        
+        <div class="form-group">
+          <input
+            type="text"
+            bind:value={newPhoto.tags}
+            placeholder="Tags (comma separated)"
+          />
+        </div>
       </div>
       
-      <div class="form-group">
-        <label for="caption">Caption (optional)</label>
-        <input
-          id="caption"
-          type="text"
-          bind:value={newPhoto.caption}
-          placeholder="Describe the photo..."
-        />
-      </div>
-      
-      <div class="form-group">
-        <label for="tags">Tags (comma separated, optional)</label>
-        <input
-          id="tags"
-          type="text"
-          bind:value={newPhoto.tags}
-          placeholder="e.g., plumbing, demo, flooring"
-        />
-      </div>
-      
-      <div class="upload-actions">
-        <button class="upload-btn" on:click={() => uploadInput.click()}>
-          📁 Choose Files
+      <div class="camera-actions">
+        <button class="btn-secondary" on:click={stopCamera}>
+          Cancel
         </button>
-        <button class="camera-btn" on:click={openCamera}>
-          📷 Take Photo
+        <button class="btn-primary capture-btn" on:click={capturePhoto}>
+          📸 Capture
         </button>
       </div>
-      
-      <input
-        bind:this={uploadInput}
-        type="file"
-        accept="image/*"
-        multiple
-        on:change={handleFileUpload}
-        style="display: none"
-      />
-      
-      <input
-        bind:this={cameraInput}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        on:change={handleFileUpload}
-        style="display: none"
-      />
     </div>
   {/if}
   
-  <div class="gallery-filters">
-    <select bind:value={filterType}>
-      <option value="all">All Photos</option>
-      <option value="before">Before Photos</option>
-      <option value="after">After Photos</option>
-    </select>
-    
-    {#if tasks.length > 0}
-      <select bind:value={filterTaskId}>
-        <option value={undefined}>All Tasks</option>
-        {#each tasks as task}
-          <option value={task.id}>{task.title}</option>
-        {/each}
-      </select>
-    {/if}
-    
-    <div class="photo-count">
-      {filteredPhotos.length} photo{filteredPhotos.length !== 1 ? 's' : ''}
-    </div>
-  </div>
-  
-  {#if filteredPhotos.length === 0}
+  {#if projectPhotos.length === 0}
     <div class="empty-state">
-      <p>No photos uploaded yet</p>
-      <p class="text-sm text-gray">Document your project progress with before and after photos</p>
+      <p>No photos yet</p>
+      <p class="text-sm text-gray">Document your project progress with photos</p>
     </div>
   {:else}
     <div class="photo-grid">
-      {#each filteredPhotos as photo}
-        <div class="photo-item" on:click={() => selectPhoto(photo)}>
+      {#each projectPhotos as photo}
+        <div class="photo-item" on:click={() => selectedPhoto = photo}>
           <img 
             src={photo.thumbnail || photo.url} 
             alt={photo.caption || 'Project photo'}
+            loading="lazy"
           />
+          
           <div class="photo-overlay">
-            <span class="photo-type badge {photo.isBefore ? 'warning' : 'success'}">
-              {photo.isBefore ? 'Before' : 'After'}
-            </span>
+            <div class="photo-badges">
+              {#if photo.isBefore}
+                <span class="badge before">Before</span>
+              {/if}
+              {#if photo.isAfter}
+                <span class="badge after">After</span>
+              {/if}
+            </div>
+            
             {#if photo.caption}
               <p class="photo-caption">{photo.caption}</p>
             {/if}
+            
+            <div class="photo-meta">
+              <span>{formatDate(photo.timestamp)}</span>
+            </div>
           </div>
-          <button 
-            class="delete-btn"
-            on:click|stopPropagation={() => deletePhoto(photo)}
-            title="Delete photo"
-          >
-            🗑️
-          </button>
+          
+          <div class="photo-actions">
+            <button
+              class="icon-btn"
+              on:click|stopPropagation={() => downloadPhoto(photo)}
+              title="Download"
+            >
+              ⬇️
+            </button>
+            <button
+              class="icon-btn danger"
+              on:click|stopPropagation={() => deletePhoto(photo.id || 0)}
+              title="Delete"
+            >
+              🗑️
+            </button>
+          </div>
         </div>
       {/each}
     </div>
   {/if}
-</div>
-
-{#if selectedPhoto}
-  <div class="photo-viewer" on:click={closePhotoViewer}>
-    <div class="viewer-content" on:click|stopPropagation>
-      <button class="close-btn" on:click={closePhotoViewer}>✕</button>
-      <img src={selectedPhoto.url} alt={selectedPhoto.caption || 'Project photo'} />
-      <div class="photo-info">
-        <div class="info-header">
-          <span class="badge {selectedPhoto.isBefore ? 'warning' : 'success'}">
-            {selectedPhoto.isBefore ? 'Before' : 'After'}
-          </span>
-          <span class="timestamp">
-            {format(selectedPhoto.timestamp, 'MMM d, yyyy h:mm a')}
-          </span>
-        </div>
+  
+  {#if selectedPhoto}
+    <div class="lightbox" on:click={() => selectedPhoto = null}>
+      <div class="lightbox-content" on:click|stopPropagation>
+        <button class="close-btn" on:click={() => selectedPhoto = null}>
+          ✕
+        </button>
+        
+        <img src={selectedPhoto.url} alt={selectedPhoto.caption || 'Project photo'} />
+        
         {#if selectedPhoto.caption}
-          <p class="caption">{selectedPhoto.caption}</p>
-        {/if}
-        {#if selectedPhoto.taskId}
-          <p class="task-link">
-            Related to: {getTaskName(selectedPhoto.taskId)}
-          </p>
-        {/if}
-        {#if selectedPhoto.tags.length > 0}
-          <div class="tags">
-            {#each selectedPhoto.tags as tag}
-              <span class="tag">{tag}</span>
-            {/each}
+          <div class="lightbox-caption">
+            <p>{selectedPhoto.caption}</p>
           </div>
         {/if}
+        
+        <div class="lightbox-meta">
+          <div class="meta-badges">
+            {#if selectedPhoto.isBefore}
+              <span class="badge before">Before</span>
+            {/if}
+            {#if selectedPhoto.isAfter}
+              <span class="badge after">After</span>
+            {/if}
+            {#each selectedPhoto.tags as tag}
+              <span class="tag">#{tag}</span>
+            {/each}
+          </div>
+          <span class="date">{formatDate(selectedPhoto.timestamp)}</span>
+        </div>
       </div>
     </div>
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
   .photo-gallery {
@@ -344,20 +395,64 @@
     margin: 0;
   }
   
-  .upload-form {
+  .header-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  
+  .filter-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid var(--gray-200);
+  }
+  
+  .filter-tab {
+    background: none;
+    color: var(--gray-600);
+    padding: 0.75rem 1rem;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+  }
+  
+  .filter-tab:hover {
+    color: var(--gray-900);
+    transform: none;
+    box-shadow: none;
+  }
+  
+  .filter-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+    font-weight: 500;
+  }
+  
+  .camera-container {
     margin-bottom: 2rem;
     padding: 1.5rem;
   }
   
-  .upload-form h4 {
+  .camera-container h4 {
     margin-top: 0;
     margin-bottom: 1rem;
   }
   
-  .form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+  .camera-preview {
+    position: relative;
+    margin-bottom: 1rem;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: #000;
+  }
+  
+  .camera-preview video {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  
+  .photo-form {
     margin-bottom: 1rem;
   }
   
@@ -365,54 +460,37 @@
     margin-bottom: 1rem;
   }
   
-  .form-group label {
-    display: block;
-    margin-bottom: 0.25rem;
-    font-size: 0.875rem;
-    color: var(--gray-700);
-    font-weight: 500;
-  }
-  
-  .form-group input,
-  .form-group select {
+  .form-group input {
     width: 100%;
   }
   
-  .radio-group {
+  .form-row {
     display: flex;
-    gap: 1rem;
-    margin-top: 0.5rem;
+    gap: 2rem;
+    margin-bottom: 1rem;
   }
   
-  .radio-group label {
+  .checkbox-label {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-weight: normal;
+    cursor: pointer;
   }
   
-  .upload-actions {
+  .checkbox-label input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+  }
+  
+  .camera-actions {
     display: flex;
-    gap: 1rem;
-    margin-top: 1rem;
+    gap: 0.5rem;
+    justify-content: center;
   }
   
-  .upload-btn,
-  .camera-btn {
-    flex: 1;
-  }
-  
-  .gallery-filters {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-    margin-bottom: 1.5rem;
-  }
-  
-  .photo-count {
-    margin-left: auto;
-    font-size: 0.875rem;
-    color: var(--gray-600);
+  .capture-btn {
+    font-size: 1.125rem;
+    padding: 0.75rem 2rem;
   }
   
   .empty-state {
@@ -421,29 +499,38 @@
     color: var(--gray-600);
   }
   
+  .text-sm {
+    font-size: 0.875rem;
+  }
+  
+  .text-gray {
+    color: var(--gray-500);
+  }
+  
   .photo-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 1rem;
   }
   
   .photo-item {
     position: relative;
-    aspect-ratio: 1;
-    overflow: hidden;
     border-radius: var(--radius);
+    overflow: hidden;
     cursor: pointer;
-    transition: transform 0.2s;
-  }
-  
-  .photo-item:hover {
-    transform: scale(1.05);
+    background: var(--gray-100);
+    aspect-ratio: 4/3;
   }
   
   .photo-item img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    transition: transform 0.2s;
+  }
+  
+  .photo-item:hover img {
+    transform: scale(1.05);
   }
   
   .photo-overlay {
@@ -454,33 +541,77 @@
     background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
     color: white;
     padding: 1rem;
+    pointer-events: none;
+  }
+  
+  .photo-badges {
     display: flex;
-    flex-direction: column;
     gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+  }
+  
+  .badge.before {
+    background: var(--warning);
+  }
+  
+  .badge.after {
+    background: var(--secondary);
   }
   
   .photo-caption {
     font-size: 0.875rem;
-    margin: 0;
+    margin: 0.5rem 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   
-  .delete-btn {
+  .photo-meta {
+    font-size: 0.75rem;
+    opacity: 0.8;
+  }
+  
+  .photo-actions {
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 0.25rem;
-    font-size: 0.875rem;
-    border-radius: var(--radius-sm);
+    display: flex;
+    gap: 0.25rem;
     opacity: 0;
     transition: opacity 0.2s;
   }
   
-  .photo-item:hover .delete-btn {
+  .photo-item:hover .photo-actions {
     opacity: 1;
   }
   
-  .photo-viewer {
+  .icon-btn {
+    background: rgba(255, 255, 255, 0.9);
+    padding: 0.5rem;
+    font-size: 0.875rem;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+  }
+  
+  .icon-btn:hover {
+    background: white;
+    transform: none;
+    box-shadow: var(--shadow);
+  }
+  
+  .icon-btn.danger:hover {
+    background: #fef2f2;
+  }
+  
+  .lightbox {
     position: fixed;
     top: 0;
     left: 0;
@@ -494,81 +625,80 @@
     padding: 2rem;
   }
   
-  .viewer-content {
+  .lightbox-content {
+    position: relative;
     max-width: 90vw;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
   }
   
-  .viewer-content img {
+  .lightbox-content img {
     max-width: 100%;
-    max-height: 70vh;
+    max-height: calc(90vh - 100px);
     object-fit: contain;
   }
   
   .close-btn {
     position: absolute;
-    top: 1rem;
-    right: 1rem;
+    top: -2rem;
+    right: 0;
+    background: none;
+    color: white;
+    font-size: 2rem;
+    padding: 0.5rem;
+    width: 3rem;
+    height: 3rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .close-btn:hover {
     background: rgba(255, 255, 255, 0.1);
-    color: white;
-    font-size: 1.5rem;
-    padding: 0.5rem 1rem;
-    border-radius: var(--radius);
+    transform: none;
   }
   
-  .photo-info {
-    background: rgba(0, 0, 0, 0.7);
+  .lightbox-caption {
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
     padding: 1rem;
+    margin-top: 1rem;
     border-radius: var(--radius);
-    color: white;
   }
   
-  .info-header {
+  .lightbox-caption p {
+    margin: 0;
+  }
+  
+  .lightbox-meta {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.5rem;
-  }
-  
-  .timestamp {
+    margin-top: 0.5rem;
+    color: white;
     font-size: 0.875rem;
-    color: var(--gray-300);
   }
   
-  .caption {
-    margin: 0.5rem 0;
-  }
-  
-  .task-link {
-    font-size: 0.875rem;
-    color: var(--gray-300);
-    margin: 0.5rem 0;
-  }
-  
-  .tags {
+  .meta-badges {
     display: flex;
     gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-top: 0.5rem;
   }
   
   .tag {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
     background: rgba(255, 255, 255, 0.2);
+    padding: 0.25rem 0.5rem;
     border-radius: var(--radius-sm);
+    font-size: 0.75rem;
   }
   
   @media (max-width: 768px) {
-    .form-row {
-      grid-template-columns: 1fr;
-    }
-    
     .photo-grid {
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+    
+    .lightbox {
+      padding: 1rem;
     }
   }
 </style>
