@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { createEventDispatcher } from 'svelte';
-  import { projects, tasks, materials, expenses, photos } from '../stores';
+  import { projects, tasks, materials, expenses } from '../stores';
   import TaskList from '../components/TaskList.svelte';
   import MaterialsList from '../components/MaterialsList.svelte';
   import ExpensesList from '../components/ExpensesList.svelte';
-  import PhotoGallery from '../components/PhotoGallery.svelte';
   import AIAssistant from '../components/AIAssistant.svelte';
+  import ProjectPlanning from '../components/ProjectPlanning.svelte';
   import type { Project } from '../db/database';
   
   export let projectId: number;
@@ -14,7 +14,7 @@
   const dispatch = createEventDispatcher();
   
   let project: Project | null = null;
-  let activeTab = 'tasks';
+  let activeTab = 'planning';
   let showAIAssistant = false;
   
   onMount(async () => {
@@ -30,7 +30,6 @@
     await tasks.load(projectId);
     await materials.load(projectId);
     await expenses.load(projectId);
-    await photos.load(projectId);
   }
   
   function handleBack() {
@@ -128,6 +127,13 @@
     <div class="tabs">
       <button
         class="tab"
+        class:active={activeTab === 'planning'}
+        on:click={() => activeTab = 'planning'}
+      >
+        📊 Planning
+      </button>
+      <button
+        class="tab"
         class:active={activeTab === 'tasks'}
         on:click={() => activeTab = 'tasks'}
       >
@@ -147,24 +153,17 @@
       >
         💰 Expenses
       </button>
-      <button
-        class="tab"
-        class:active={activeTab === 'photos'}
-        on:click={() => activeTab = 'photos'}
-      >
-        📸 Photos
-      </button>
     </div>
     
     <div class="tab-content">
-      {#if activeTab === 'tasks'}
+      {#if activeTab === 'planning'}
+        <ProjectPlanning projectId={project.id} />
+      {:else if activeTab === 'tasks'}
         <TaskList projectId={project.id} />
       {:else if activeTab === 'materials'}
         <MaterialsList projectId={project.id} />
       {:else if activeTab === 'expenses'}
         <ExpensesList projectId={project.id} />
-      {:else if activeTab === 'photos'}
-        <PhotoGallery projectId={project.id} />
       {/if}
     </div>
   </div>

@@ -3,6 +3,7 @@
   import { projects, rooms } from '../stores';
   import { createEventDispatcher } from 'svelte';
   import type { Project, Room } from '../db/database';
+  import ProjectTemplates from '../components/ProjectTemplates.svelte';
   
   const dispatch = createEventDispatcher();
   
@@ -13,6 +14,7 @@
   let selectedRoom = 'all';
   let searchTerm = '';
   let sortBy = 'updated';
+  let showTemplates = false;
   
   onMount(async () => {
     await projects.load();
@@ -111,10 +113,15 @@
 <div class="projects">
   <div class="projects-header">
     <h1>Projects</h1>
-    <button class="btn-primary" on:click={() => dispatch('editProject', null)}>
-      <span>➕</span>
-      New Project
-    </button>
+    <div class="header-actions">
+      <button class="btn-secondary" on:click={() => showTemplates = !showTemplates}>
+        {showTemplates ? '📋 My Projects' : '📐 Templates'}
+      </button>
+      <button class="btn-primary" on:click={() => dispatch('editProject', null)}>
+        <span>➕</span>
+        New Project
+      </button>
+    </div>
   </div>
   
   <div class="filters">
@@ -156,7 +163,12 @@
     </div>
   </div>
   
-  {#if filteredProjects.length > 0}
+  {#if showTemplates}
+    <ProjectTemplates on:projectCreated={(e) => {
+      showTemplates = false;
+      dispatch('selectProject', e.detail);
+    }} />
+  {:else if filteredProjects.length > 0}
     <div class="projects-grid">
       {#each filteredProjects as project}
         <div
@@ -165,12 +177,6 @@
           role="button"
           tabindex="0"
         >
-          {#if project.coverPhoto}
-            <div class="project-cover">
-              <img src={project.coverPhoto} alt={project.name} />
-            </div>
-          {/if}
-          
           <div class="project-content">
             <div class="project-header">
               <h3>{project.name}</h3>
@@ -273,6 +279,11 @@
     margin-bottom: 2rem;
   }
   
+  .header-actions {
+    display: flex;
+    gap: 1rem;
+  }
+  
   .filters {
     display: flex;
     gap: 1rem;
@@ -304,18 +315,6 @@
   .project-card:hover {
     transform: translateY(-4px);
     box-shadow: var(--shadow-lg);
-  }
-  
-  .project-cover {
-    margin: -1.5rem -1.5rem 1rem -1.5rem;
-    height: 150px;
-    overflow: hidden;
-  }
-  
-  .project-cover img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
   }
   
   .project-content {

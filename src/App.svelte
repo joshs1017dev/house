@@ -1,21 +1,30 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Navigation from './lib/components/Navigation.svelte';
+  import MobileNavigation from './lib/components/MobileNavigation.svelte';
   import Dashboard from './lib/views/Dashboard.svelte';
   import Projects from './lib/views/Projects.svelte';
+  import ConstructionProjects from './lib/views/ConstructionProjects.svelte';
   import ProjectDetail from './lib/views/ProjectDetail.svelte';
   import Materials from './lib/views/Materials.svelte';
   import Expenses from './lib/views/Expenses.svelte';
-  import Photos from './lib/views/Photos.svelte';
   import Tools from './lib/views/Tools.svelte';
   import Maintenance from './lib/views/Maintenance.svelte';
+  import MaterialCalculator from './lib/components/MaterialCalculator.svelte';
+  import ShoppingList from './lib/components/ShoppingList.svelte';
   import ProjectForm from './lib/components/ProjectForm.svelte';
-  import { projects, tasks, materials, expenses, photos, rooms } from './lib/stores';
+  import ConstructionProjectForm from './lib/components/ConstructionProjectForm.svelte';
+  import MasterSchedule from './lib/views/MasterSchedule.svelte';
+  import WorkBreakdownStructure from './lib/views/WorkBreakdownStructure.svelte';
+  import SchedulingView from './lib/views/SchedulingView.svelte';
+  import { projects, tasks, materials, expenses, rooms } from './lib/stores';
   
   let currentView = 'dashboard';
   let selectedProjectId: number | null = null;
   let showProjectForm = false;
   let editingProject = null;
+  let mobileMenuOpen = false;
+  let windowWidth = 0;
   
   onMount(async () => {
     // Load initial data
@@ -71,43 +80,118 @@
   }
 </script>
 
+<svelte:window bind:innerWidth={windowWidth} />
+
 <div class="app">
-  <Navigation 
-    {currentView} 
-    on:navigate={handleNavigate}
-    on:newProject={handleNewProject}
-  />
+  <!-- Desktop Navigation -->
+  {#if windowWidth > 768}
+    <Navigation 
+      {currentView} 
+      on:navigate={handleNavigate}
+      on:newProject={handleNewProject}
+    />
+  {/if}
+  
+  <!-- Mobile Navigation -->
+  {#if windowWidth <= 768}
+    <MobileNavigation
+      {currentView}
+      bind:isOpen={mobileMenuOpen}
+      on:navigate={handleNavigate}
+      on:newProject={handleNewProject}
+    />
+  {/if}
   
   <main class="main-content">
-    {#if currentView === 'dashboard'}
-      <Dashboard on:selectProject={handleProjectSelect} />
-    {:else if currentView === 'projects'}
-      <Projects 
-        on:selectProject={handleProjectSelect}
-        on:editProject={handleProjectEdit}
-      />
-    {:else if currentView === 'project-detail' && selectedProjectId}
-      <ProjectDetail 
-        projectId={selectedProjectId}
-        on:back={() => currentView = 'projects'}
-      />
-    {:else if currentView === 'materials'}
-      <Materials />
-    {:else if currentView === 'expenses'}
-      <Expenses />
-    {:else if currentView === 'photos'}
-      <Photos />
-    {:else if currentView === 'tools'}
-      <Tools />
-    {:else if currentView === 'maintenance'}
-      <Maintenance />
-    {/if}
+    <div class="content-header">
+      <h2 class="page-title">
+        {#if currentView === 'dashboard'}
+          Project Dashboard
+        {:else if currentView === 'projects'}
+          Active Projects
+        {:else if currentView === 'schedule'}
+          Master Schedule
+        {:else if currentView === 'scheduling'}
+          Advanced Scheduling
+        {:else if currentView === 'wbs'}
+          Work Breakdown Structure
+        {:else if currentView === 'dailylog'}
+          Daily Reports
+        {:else if currentView === 'workforce'}
+          Workforce Management
+        {:else if currentView === 'equipment'}
+          Equipment Tracking
+        {:else if currentView === 'safety'}
+          Safety Management
+        {:else if currentView === 'submittals'}
+          Submittal Log
+        {:else if currentView === 'rfis'}
+          Request for Information
+        {:else if currentView === 'drawings'}
+          Drawing Management
+        {:else if currentView === 'specs'}
+          Specifications
+        {:else if currentView === 'budget'}
+          Budget Tracking
+        {:else if currentView === 'changeorders'}
+          Change Orders
+        {:else if currentView === 'invoices'}
+          Invoice Management
+        {:else if currentView === 'payapps'}
+          Pay Applications
+        {:else}
+          {currentView}
+        {/if}
+      </h2>
+      <div class="header-actions">
+        <span class="current-date">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+      </div>
+    </div>
+    
+    <div class="content-body">
+      {#if currentView === 'dashboard'}
+        <Dashboard on:selectProject={handleProjectSelect} />
+      {:else if currentView === 'projects'}
+        <ConstructionProjects 
+          on:selectProject={handleProjectSelect}
+          on:editProject={handleProjectEdit}
+        />
+      {:else if currentView === 'project-detail' && selectedProjectId}
+        <ProjectDetail 
+          projectId={selectedProjectId}
+          on:back={() => currentView = 'projects'}
+        />
+      {:else if currentView === 'materials'}
+        <Materials />
+      {:else if currentView === 'expenses'}
+        <Expenses />
+      {:else if currentView === 'calculator'}
+        <MaterialCalculator />
+      {:else if currentView === 'shopping'}
+        <ShoppingList />
+      {:else if currentView === 'tools' || currentView === 'equipment'}
+        <Tools />
+      {:else if currentView === 'maintenance'}
+        <Maintenance />
+      {:else if currentView === 'schedule'}
+        <MasterSchedule />
+      {:else if currentView === 'scheduling'}
+        <SchedulingView />
+      {:else if currentView === 'wbs'}
+        <WorkBreakdownStructure />
+      {:else}
+        <div class="coming-soon">
+          <h3>🚧 Under Construction</h3>
+          <p>This feature is coming soon to CONSTRUCT Professional Edition</p>
+        </div>
+      {/if}
+    </div>
   </main>
   
   {#if showProjectForm}
     <div class="modal-overlay" on:click={handleProjectFormCancel}>
       <div class="modal-content" on:click|stopPropagation>
-        <ProjectForm
+        <ConstructionProjectForm
           project={editingProject}
           on:save={handleProjectSave}
           on:cancel={handleProjectFormCancel}
@@ -248,15 +332,71 @@
   .app {
     display: flex;
     min-height: 100vh;
+    background: #f3f4f6;
   }
   
   .main-content {
+    margin-left: 280px;
     flex: 1;
-    margin-top: 4rem;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    transition: margin-left 0.3s ease;
+  }
+  
+  @media (max-width: 768px) {
+    .main-content {
+      margin-left: 0;
+      margin-top: 56px; /* Height of mobile header */
+    }
+  }
+  
+  .content-header {
+    background: white;
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .page-title {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: #1f2937;
+    margin: 0;
+  }
+  
+  .current-date {
+    color: #6b7280;
+    font-size: 0.875rem;
+  }
+  
+  .content-body {
+    flex: 1;
     padding: 2rem;
-    max-width: 1280px;
-    margin-left: auto;
-    margin-right: auto;
+    overflow-y: auto;
+  }
+  
+  .coming-soon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 400px;
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+  
+  .coming-soon h3 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    color: #1f2937;
+  }
+  
+  .coming-soon p {
+    color: #6b7280;
   }
   
   .modal-overlay {
@@ -283,9 +423,48 @@
   }
   
   @media (max-width: 768px) {
-    .main-content {
+    .content-body {
       padding: 1rem;
-      margin-top: 5rem;
+    }
+    
+    .content-header {
+      padding: 1rem;
+    }
+    
+    .page-title {
+      font-size: 1.5rem;
+    }
+    
+    .header-actions {
+      display: none; /* Hide date on mobile to save space */
+    }
+    
+    .modal-content {
+      max-width: 95%;
+      margin: 1rem;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .content-body {
+      padding: 0.75rem;
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+    }
+  }
+  
+  /* Touch-friendly adjustments */
+  @media (pointer: coarse) {
+    :global(button) {
+      min-height: 44px;
+      min-width: 44px;
+    }
+    
+    :global(input, select, textarea) {
+      min-height: 44px;
+      font-size: 16px; /* Prevents zoom on iOS */
     }
   }
 </style>

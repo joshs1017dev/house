@@ -38,7 +38,6 @@ function createProjectsStore() {
       await db.projects.delete(id);
       await db.tasks.where('projectId').equals(id).delete();
       await db.materials.where('projectId').equals(id).delete();
-      await db.photos.where('projectId').equals(id).delete();
       await db.expenses.where('projectId').equals(id).delete();
       update(projects => projects.filter(p => p.id !== id));
     }

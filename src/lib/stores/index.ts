@@ -1,5 +1,5 @@
 import { writable, derived } from 'svelte/store';
-import type { Project, Task, Material, Expense, Photo, Room, Contractor, Tool, Maintenance } from '../db/database';
+import type { Project, Task, Material, Expense, Room, Contractor, Tool, Maintenance } from '../db/database';
 import { db } from '../db/database';
 
 // Projects store
@@ -35,7 +35,6 @@ function createProjectsStore() {
       // Delete all related data
       await db.tasks.where('projectId').equals(id).delete();
       await db.materials.where('projectId').equals(id).delete();
-      await db.photos.where('projectId').equals(id).delete();
       await db.expenses.where('projectId').equals(id).delete();
       await db.projects.delete(id);
       await this.load();
@@ -149,28 +148,6 @@ function createExpensesStore() {
   };
 }
 
-// Photos store
-function createPhotosStore() {
-  const { subscribe, set, update } = writable<Photo[]>([]);
-
-  return {
-    subscribe,
-    async load(projectId?: number) {
-      const photos = projectId
-        ? await db.photos.where('projectId').equals(projectId).toArray()
-        : await db.photos.toArray();
-      set(photos);
-    },
-    async add(photo: Omit<Photo, 'id'>) {
-      const id = await db.photos.add(photo);
-      return id;
-    },
-    async delete(id: number) {
-      await db.photos.delete(id);
-    }
-  };
-}
-
 // Rooms store
 function createRoomsStore() {
   const { subscribe, set } = writable<Room[]>([]);
@@ -194,7 +171,6 @@ export const projects = createProjectsStore();
 export const tasks = createTasksStore();
 export const materials = createMaterialsStore();
 export const expenses = createExpensesStore();
-export const photos = createPhotosStore();
 export const rooms = createRoomsStore();
 
 // Derived stores
